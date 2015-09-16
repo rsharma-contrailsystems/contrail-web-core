@@ -5,27 +5,28 @@
 define([
     'underscore',
     'backbone',
+    'contrail-view-model',
     'knockout',
     'knockback'
-], function (_, Backbone, Knockout, Knockback) {
+], function (_, Backbone, ContrailViewModel, Knockout, Knockback) {
     var ContrailModel = Knockback.ViewModel.extend({
 
         formatModelConfig: function(modelConfig) {
             return modelConfig;
         },
 
-        constructor: function (modelConfig) {
+        constructor: function (modelData, modelRemoteDataConfig) {
             var model, errorAttributes,
                 editingLockAttrs, _this = this,
-                modelAttributes = (modelConfig == null) ? this.defaultConfig : modelConfig;
+                modelAttributes = (modelData == null) ? this.defaultConfig : modelData;
 
             errorAttributes = generateAttributes(modelAttributes, cowc.ERROR_SUFFIX_ID, false);
             editingLockAttrs = generateAttributes(modelAttributes, cowc.LOCKED_SUFFIX_ID, true);
 
-            modelConfig = $.extend(true, {}, this.defaultConfig, modelConfig, {errors: new Backbone.Model(errorAttributes), locks: new Backbone.Model(editingLockAttrs)});
+            modelData = $.extend(true, {}, this.defaultConfig, modelData, {errors: new Backbone.Model(errorAttributes), locks: new Backbone.Model(editingLockAttrs)});
 
-            modelConfig = this.formatModelConfig(modelConfig);
-            model = new Backbone.Model(modelConfig);
+            modelData = this.formatModelConfig(modelData);
+            model = new ContrailViewModel($.extend(true, {data: modelData}, modelRemoteDataConfig));
             model = _.extend(model, this.validations, {_originalAttributes: modelAttributes});
 
             Knockback.ViewModel.prototype.constructor.call(this, model);
@@ -98,14 +99,14 @@ define([
 
         getFormErrorText: function (prefixId) {
             var modelErrors = this.model().attributes.errors.attributes,
-                errorText = smwm.get(smwm.SHOULD_BE_VALID, smwl.get(prefixId));
+                errorText = cowm.get(cowm.SHOULD_BE_VALID, cowl.get(prefixId));
 
             _.each(modelErrors, function (value, key) {
                 if (_.isFunction(modelErrors[key]) || (modelErrors[key] == 'false') || (modelErrors[key] == '')) {
                     delete modelErrors[key];
                 } else {
                     if (-1 == (key.indexOf('_form_error'))) {
-                        errorText = errorText + smwl.getFirstCharUpperCase(key.split('_error')[0]) + ", ";
+                        errorText = errorText + cowl.getFirstCharUpperCase(key.split('_error')[0]) + ", ";
                     }
                 }
             });
@@ -115,7 +116,7 @@ define([
         }
     });
 
-    var generateAttributes = function (attributes, suffix, defaultValue) {
+    function generateAttributes(attributes, suffix, defaultValue) {
         var flattenAttributes = cowu.flattenObject(attributes),
             errorAttributes = {};
 

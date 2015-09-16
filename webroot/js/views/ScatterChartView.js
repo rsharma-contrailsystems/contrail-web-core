@@ -4,12 +4,11 @@
 
 define([
     'underscore',
-    'backbone',
-    'js/models/ScatterChartModel',
+    'contrail-view',
+    'core-basedir/js/models/ScatterChartModel',
     'contrail-list-model'
-], function (_, Backbone, ScatterChartModel, ContrailListModel) {
-    var ScatterChartView = Backbone.View.extend({
-        renderChartInProgress: false,
+], function (_, ContrailView, ScatterChartModel, ContrailListModel) {
+    var ScatterChartView = ContrailView.extend({
         render: function () {
             var loadingSpinnerTemplate = contrail.getTemplate4Id(cowc.TMPL_LOADING_SPINNER),
                 viewConfig = this.attributes.viewConfig,
@@ -35,7 +34,7 @@ define([
 
                 if(viewConfig.loadChartInChunks) {
                     self.model.onDataUpdate.subscribe(function() {
-                        if(!this.renderChartInProgress) {
+                        if(!this.isMyRenderInProgress) {
                             //TODO: We should render chart less often
                             self.renderChart(selector, viewConfig, self.model);
                         }
@@ -45,7 +44,7 @@ define([
         },
 
         renderChart: function (selector, viewConfig, dataListModel) {
-            this.renderChartInProgress = true;
+            this.isMyRenderInProgress = true;
 
             var data = dataListModel.getFilteredItems(),
                 error = dataListModel.error,
@@ -77,11 +76,11 @@ define([
             }
 
             if(dataListModel.isRequestInProgress()) {
-                chartModel.noData(cowc.CHART_LOADING_MESSAGE);
+                chartModel.noData(cowm.DATA_FETCHING);
             } else if(chartModel['noDataMessage']) {
                 chartModel.noData(chartModel['noDataMessage']);
             } else if (error) {
-                chartModel.noData(cowc.DATA_ERROR_MESSAGE);
+                chartModel.noData(cowm.DATA_ERROR);
             }
 
             if ($(selector).find('svg').length == 0) {
@@ -144,7 +143,7 @@ define([
             }
 
             $(selector).find('.loading-spinner').remove();
-            this.renderChartInProgress = false;
+            this.isMyRenderInProgress = false;
         }
     });
 

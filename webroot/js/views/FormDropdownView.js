@@ -4,17 +4,19 @@
 
 define([
     'underscore',
-    'backbone'
-], function (_, Backbone) {
-    var FormDropdownView = Backbone.View.extend({
+    'contrail-view'
+], function (_, ContrailView) {
+    var FormDropdownView = ContrailView.extend({
         render: function () {
-            var dropdownTemplate = contrail.getTemplate4Id(cowc.TMPL_DROPDOWN_VIEW),
-                viewConfig = this.attributes.viewConfig,
+            var viewConfig = this.attributes.viewConfig,
+                dropdownTemplate = contrail.getTemplate4Id((viewConfig.templateId) ? viewConfig.templateId: cowc.TMPL_DROPDOWN_VIEW),
                 elId = this.attributes.elementId,
+                app = this.attributes.app,
                 elementConfig = viewConfig[cowc.KEY_ELEMENT_CONFIG],
                 path = viewConfig[cowc.KEY_PATH],
                 lockEditingByDefault = this.attributes.lockEditingByDefault,
-                labelValue = (elId != null) ? smwl.get(elId) : smwl.get(path),
+                label = viewConfig.label,
+                labelValue = (label != null)? label :((elId != null)? cowl.get(elId, app) : cowl.get(path, app)),
                 tmplParameters;
 
             if (!(contrail.checkIfExist(lockEditingByDefault) && lockEditingByDefault)) {
@@ -23,14 +25,24 @@ define([
             this.model.initLockAttr(path, lockEditingByDefault);
 
             tmplParameters = {
-                label: labelValue, id: elId + '_dropdown', name: elId,
-                dataBindValue: viewConfig[cowc.KEY_DATABIND_VALUE],
-                lockAttr: lockEditingByDefault,
-                class: "span12", elementConfig: elementConfig
+                id: elId + '_dropdown', class: "span12", name: elId, label: labelValue,
+                viewConfig: viewConfig, lockAttr: lockEditingByDefault
             };
 
-            this.$el.html(dropdownTemplate(tmplParameters));
+            /* Save the elementConfig for the dropdown in elementConfigMap in the model
+             'key' is the name of the element and 'value is the actual element config' */
 
+            // get the current elementConfigMap
+            var currentElementConfigMap = this.model.model().get('elementConfigMap');
+            if(!contrail.checkIfExist(currentElementConfigMap)){
+                currentElementConfigMap = {};
+                this.model.model().set('elementConfigMap', currentElementConfigMap);
+            }
+
+            // Update the existing elementConfigMap by adding the the new element elementConfig
+            // will get updated in the model also
+            currentElementConfigMap[elId] = elementConfig;
+            this.$el.html(dropdownTemplate(tmplParameters));
             if (contrail.checkIfFunction(elementConfig.onInit)) {
                 elementConfig.onInit(this.model.model());
             }

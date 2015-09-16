@@ -69,6 +69,9 @@
                 } else {
                     self.spinner("value", value);
                 }
+            },
+            destroy: function() {
+                self.spinner("destroy");
             }
         });
         return self;
@@ -101,7 +104,20 @@
                     .datetimepicker(self.data('contrailDateTimePicker').option);
             },
             val: function(dateTime) {
+                console.warn('Contrail WebUI Warning: Function val of ContrailDateTimePicker is deprecated. Use value() instead.');
                 self.val(moment(dateTime).format('MMM DD, YYYY hh:mm:ss A'));
+            },
+            value: function(dateTime) {
+                if(!contrail.checkIfExist(dateTime)) {
+                    return self.val();
+                } else {
+                    var value = moment(dateTime).format('MMM DD, YYYY hh:mm:ss A');
+                    self.val(value);
+                    return value;
+                }
+            },
+            destroy: function() {
+                self.datetimepicker('destroy')
             }
         });
         return self;
@@ -113,8 +129,9 @@
         return self;
     };
     
-    $.fn.contrailCombobox = function(option) {
-        var self = this, formattedData = [],
+    $.fn.contrailCombobox = function(customOption) {
+        var option = $.extend(true, {}, customOption),
+            self = this, formattedData = [],
             asyncVal = false;
 
         self.globalSelect = {};
@@ -303,7 +320,13 @@
                 .addClass('custom-combobox-input span12')
                 .appendTo( wrapper )
                 .autocomplete(option)
-                .attr('placeholder', option.placeholder);
+                .attr('placeholder', option.placeholder)
+
+                // update the combobox when the input is updated to keep both in sync
+                .on( "autocompletechange", function( event, ui ) {
+                    dis.val($(this).val());
+                    dis.trigger('change');
+                });
 
             if(contrail.checkIfExist(option.defaultValue)){
                     input.val(option.defaultValue);
@@ -550,35 +573,63 @@
         }
 
         config.onInit = function (event, currentIndex) {
+            var onInitCompleteCBCalled = false,
+                onInitCompleteCB = function(currentStep, config) {
+                    if (contrail.checkIfFunction(currentStep.onLoadFromPrevious)) {
+                        currentStep.onLoadFromPrevious(config.params);
+                    }
+                    if (contrail.checkIfFunction(currentStep.onLoadFromNext)) {
+                        currentStep.onLoadFromNext(config.params);
+                    }
+                    configureButton(currentStep.buttons);
+                };
+
             $.each(steps, function(stepKey, stepValue){
-                if(contrail.checkIfFunction(stepValue.onInitWizard)) {
-                    stepValue.onInitWizard(config.params);
+                if (contrail.checkIfFunction(stepValue.onInitWizard)) {
+                    stepValue.onInitWizard(config.params, function() {
+                        onInitCompleteCB(stepValue, config);
+                    });
+                    onInitCompleteCBCalled = true;
                     stepsInitFlag[stepKey] = true;
                 }
             });
 
-            if(!stepsInitFlag[currentIndex]){
-                if(contrail.checkIfFunction(steps[currentIndex].onInitFromPrevious)) {
-                    steps[currentIndex].onInitFromPrevious(config.params);
+            if (!stepsInitFlag[currentIndex]) {
+                if (contrail.checkIfFunction(steps[currentIndex].onInitFromPrevious)) {
+                    steps[currentIndex].onInitFromPrevious(config.params, function() {
+                        onInitCompleteCB(steps[currentIndex], config);
+                    });
+                    onInitCompleteCBCalled = true;
                 }
-                if(contrail.checkIfFunction(steps[currentIndex].onInitFromNext)) {
-                    steps[currentIndex].onInitFromNext(config.params);
+                else if(contrail.checkIfFunction(steps[currentIndex].onInitFromNext)) {
+                    steps[currentIndex].onInitFromNext(config.params, function() {
+                        onInitCompleteCB(steps[currentIndex], config);
+                    });
+                    onInitCompleteCBCalled = true;
                 }
                 stepsInitFlag[currentIndex] = true;
             }
 
-            if(contrail.checkIfFunction(steps[currentIndex].onLoadFromPrevious)) {
-                steps[currentIndex].onLoadFromPrevious(config.params);
+            if (!onInitCompleteCBCalled) {
+                onInitCompleteCB(steps[currentIndex], config)
             }
-            if(contrail.checkIfFunction(steps[currentIndex].onLoadFromNext)) {
-                steps[currentIndex].onLoadFromNext(config.params);
-            }
-            configureButton(steps[currentIndex].buttons);
+
         };
 
         config.onStepChanged = function(event, currentIndex, priorIndex) {
-            var currentStepLiElement = self.find('.steps').find('li:eq(' + currentIndex + ')');
-            if(currentIndex < priorIndex) {
+            var currentStepLiElement = self.find('.steps').find('li:eq(' + currentIndex + ')'),
+                onInitCompleteCBCalled = false,
+                onInitCompleteCB = function(currentStep, config) {
+                    if (currentIndex > priorIndex && contrail.checkIfFunction(currentStep.onLoadFromNext)) {
+                        currentStep.onLoadFromNext(config.params);
+                    }
+                    else if (currentIndex < priorIndex && contrail.checkIfFunction(currentStep.onLoadFromPrevious)) {
+                        currentStep.onLoadFromPrevious(config.params);
+                    }
+                    configureButton(currentStep.buttons);
+                };
+
+            if (currentIndex < priorIndex) {
                 self.find('.steps').find('li:eq(' + priorIndex + ')').removeClass('done');
                 currentStepLiElement.removeClass('completed');
             }
@@ -590,22 +641,25 @@
             }
 
             if(!stepsInitFlag[currentIndex]) {
-                if(currentIndex > priorIndex && contrail.checkIfFunction(steps[currentIndex].onInitFromNext)) {
-                    steps[currentIndex].onInitFromNext(config.params);
+                if (currentIndex > priorIndex && contrail.checkIfFunction(steps[currentIndex].onInitFromNext)) {
+                    steps[currentIndex].onInitFromNext(config.params, function() {
+                        onInitCompleteCB(steps[currentIndex], config)
+                    });
+                    onInitCompleteCBCalled = true;
                 }
                 else if(currentIndex < priorIndex && contrail.checkIfFunction(steps[currentIndex].onInitFromPrevious)) {
-                    steps[currentIndex].onInitFromPrevious(config.params);
+                    steps[currentIndex].onInitFromPrevious(config.params, function() {
+                        onInitCompleteCB(steps[currentIndex], config)
+                    });
+                    onInitCompleteCBCalled = true;
                 }
                 stepsInitFlag[currentIndex] = true;
             }
 
-            if(currentIndex > priorIndex && contrail.checkIfFunction(steps[currentIndex].onLoadFromNext)) {
-                steps[currentIndex].onLoadFromNext(config.params);
+            if(!onInitCompleteCBCalled) {
+                onInitCompleteCB(steps[currentIndex], config)
             }
-            else if(currentIndex < priorIndex && contrail.checkIfFunction(steps[currentIndex].onLoadFromPrevious)) {
-                steps[currentIndex].onLoadFromPrevious(config.params);
-            }
-            configureButton(steps[currentIndex].buttons);
+
         };
 
         config.onStepChanging = function (event, currentIndex, newIndex) {
@@ -631,11 +685,11 @@
 
         config.onFinished = function (event, currentIndex) {
             steps[currentIndex].onNext(config.params);
-        }
+        };
 
         self.steps(config);
 
-        self.find('.actions').find('a').addClass('btn btn-mini')
+        self.find('.actions').find('a').addClass('btn btn-mini');
         self.find('.actions').find('a[href="#next"]').addClass('btn-primary');
         self.find('.actions').find('a[href="#finish"]').addClass('btn-primary');
 
@@ -654,7 +708,7 @@
             else {
                 $(this).find('.number').text(++stepIndex);
             }
-        })
+        });
 
         function configureButton(buttons){
             self.find('.actions').find('a').parent('li[aria-hidden!="true"]').show();
@@ -670,11 +724,15 @@
             }
         }
 
-        self.data('contrailWizard', $.extend(true, {}, getDefaultStepsMethods(), {}));
+        self.data('contrailWizard', $.extend(true, {}, getDefaultStepsMethods(), {
+            'getStepsLength': function() {
+                return steps.length;
+            }
+        }));
 
         function getDefaultStepsMethods() {
             var methodObj = {},
-                defaultMethods = ['next', 'previous', 'finish', 'destroy', 'skip'];
+                defaultMethods = ['getCurrentStep', 'getCurrentIndex', 'next', 'previous', 'finish', 'destroy', 'skip'];
 
             $.each(defaultMethods, function (defaultMethodKey, defaultMethodValue) {
                 methodObj[defaultMethodValue] = function () {
@@ -767,7 +825,7 @@
                             self.find('select').multiselect('close');
                         })
                     }
-                })
+                });
 
                 multiSelectMenu.append(msControls);
             }
@@ -848,6 +906,11 @@
     
     $.extend({
         contrailBootstrapModal:function (options) {
+            var keyupAction = $.extend(true, {}, {
+                onKeyupEnter: null,
+                onKeyupEsc: null
+            }, options.keyupAction);
+
             options.id = options.id != undefined ? options.id : '';
             var className = (options.className == null) ? '' : options.className;
 
@@ -883,6 +946,15 @@
 
             if(options.footer != false) {
                 $.each(options.footer, function (key, footerButton) {
+                    function performFooterBtnClick(footerButton) {
+                        if (typeof footerButton.onclick === 'function') {
+                            footerButton.onclick(footerButton.onClickParams);
+                        }
+                        else if (footerButton.onclick != 'close' && typeof footerButton.onclick === 'string') {
+                            window[footerButton.onclick](footerButton.onClickParams);
+                        }
+                    }
+
                     var btnId = (footerButton.id != undefined && footerButton.id != '') ? footerButton.id : options.id + 'btn' + key,
                         btn = '<button id="' + btnId + '" class="btn btn-mini ' + ((footerButton.className != undefined && footerButton.className != '') ? footerButton.className : '') + '"'
                             + ((footerButton.onclick === 'close') ? ' data-dismiss="modal" aria-hidden="true"' : '') + '>'
@@ -890,20 +962,40 @@
 
                     modalId.find('.modal-footer').append(btn);
                     $('#' + btnId).on('click', function () {
-                        if (typeof footerButton.onclick === 'function') {
-                            footerButton.onclick(footerButton.onClickParams);
-                        }
-                        else if (footerButton.onclick != 'close' && typeof footerButton.onclick === 'string') {
-                            window[footerButton.onclick](footerButton.onClickParams);
-                        }
+                        performFooterBtnClick(footerButton);
                     });
 
+                    if (!contrail.checkIfFunction(keyupAction.onKeyupEnter) && footerButton.onKeyupEnter) {
+                        keyupAction.onKeyupEnter = function () { performFooterBtnClick(footerButton); };
+                    } else if (!contrail.checkIfFunction(keyupAction.onKeyupEsc) && footerButton.onKeyupEsc) {
+                        keyupAction.onKeyupEsc = function () { performFooterBtnClick(footerButton); };
+                    }
                 });
             }
             else {
                 modalId.find('.modal-footer').remove();
             }
             modalId.modal({backdrop:'static', keyboard:false});
+
+            modalId.draggable({
+                handle: ".modal-header",
+                containment: 'body',
+                cursor: 'move'
+            });
+
+            if (contrail.checkIfFunction(keyupAction.onKeyupEnter) || contrail.checkIfFunction(keyupAction.onKeyupEsc)) {
+                modalId.keyup(function(e) {
+                    var code = e.which; // recommended to use e.which, it's normalized across browsers
+                    if (code == 13) {
+                        e.preventDefault();
+                    }
+                    if (contrail.checkIfFunction(keyupAction.onKeyupEnter) && code == 13) {
+                        keyupAction.onKeyupEnter();
+                    } else if (contrail.checkIfFunction(keyupAction.onKeyupEsc) && code == 27) {
+                        keyupAction.onKeyupEsc();
+                    }
+                });
+            }
         }
     });
 })(jQuery);
@@ -1096,10 +1188,16 @@ function constructSelect2(self, defaultOption, args) {
             }
 
             self.select2(option)
+                .off("change", changeFunction)
                 .on("change", changeFunction)
+                .off("select2-selecting", selectingFunction)
                 .on("select2-selecting", selectingFunction);
             if (option.data.length !=0 && option.ignoreFirstValue != true) {
-                self.select2('val', option.data[0].text);
+                // set default value only if explicitly defined and if not a multiselect
+                if(option.defaultValueId != null && (option.data.length > option.defaultValueId) && (option.defaultValueId >= 0) && (!contrail.checkIfExist(option.multiple))) {
+                    var selectedOption = option.data[option.defaultValueId];
+                    self.select2('val', selectedOption[option.dataValueField.dsVar]);
+                }
             }
         }
 
@@ -1144,15 +1242,15 @@ function constructSelect2(self, defaultOption, args) {
                     }
                 }
             },
-            value: function(value) {
+            value: function(value, triggerChange) {
                 if(typeof value === 'undefined'){
                     return self.select2('val');
                 }
                 else{
-                    self.select2('val', value);
+                    self.select2('val', value, (contrail.checkIfExist(triggerChange) ? triggerChange : false));
                 }
             },
-            setData: function(data) {
+            setData: function(data, triggerChange) {
                 self.select2('destroy');
                 option.data = formatData(data,option);
                 if(typeof option.data != "undefined") {
@@ -1163,12 +1261,13 @@ function constructSelect2(self, defaultOption, args) {
                     .off("change", changeFunction)
                     .on("change", changeFunction);
 
+                //TODO - Sync with setting of value based on defaultValueId
                 if(option.data.length > 0){
                     if(option.data[0].children != undefined && option.data[0].children.length > 0) {
                         if(option.data[1] != null && option.data[1].children != null && option.data[1].children.length > 0)
-                            self.select2('val', option.data[1].children[0].value);
+                            self.select2('val', option.data[1].children[0].value, (contrail.checkIfExist(triggerChange) ? triggerChange : false));
                     } else {
-                        self.select2('val', option.data[0].value);                    
+                        self.select2('val', option.data[0].value, (contrail.checkIfExist(triggerChange) ? triggerChange : false));
                     }
                 }
             },

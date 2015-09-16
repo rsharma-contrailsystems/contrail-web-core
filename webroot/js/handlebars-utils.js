@@ -12,6 +12,7 @@ Handlebars.registerHelper('IfCompare', function(lvalue, rvalue, options) {
             '==': function(l, r) { return l == r; },
             '===': function(l, r) { return l === r; },
             '!=': function(l, r) { return l != r; },
+            '!==': function(l, r) { return l !== r; },
             '<': function(l, r) { return l < r; },
             '>': function(l, r) { return l > r; },
             '<=': function(l, r) { return l <= r; },
@@ -187,11 +188,16 @@ Handlebars.registerHelper('showDeviceOwner', function(block) {
         return 'show';
 });
 
-Handlebars.registerHelper('getLabel', function (labelKey, feature) {
+Handlebars.registerHelper('getLabel', function (label, labelKey, feature) {
+    if(label != null && label != "undefined") {
+        return label;
+    }
     if (feature == cowc.APP_CONTRAIL_SM) {
         return smwl.get(labelKey);
     } else if (feature == cowc.APP_CONTRAIL_CONTROLLER) {
         return ctwl.get(labelKey);
+    } else if (feature == cowc.APP_CONTRAIL_STORAGE) {
+        return swl.get(labelKey);
     }
 });
 
@@ -215,8 +221,7 @@ Handlebars.registerHelper('getValueByConfig', function (obj, options) {
     switch (templateGenerator) {
         case 'TextGenerator':
             if (contrail.checkIfExist(templateGeneratorConfig)) {
-                var formatterKey = templateGeneratorConfig.formatter;
-                return cowf.getTextGenerator(formatterKey, value);
+                return cowf.getTextGenerator(templateGeneratorConfig, key, obj);
             } else {
                 returnValue = $.isArray(value) ? value.join(', ') : value;
             }
@@ -289,3 +294,8 @@ Handlebars.registerHelper('encodedVN', function(jsonObj) {
 Handlebars.registerHelper('handleIfNull', function(value, defaultValue) {
     return contrail.handleIfNull(value, defaultValue);
 });
+
+Handlebars.registerHelper('printJSON', function(jsonObject) {
+    return JSON.stringify(jsonObject);
+});
+

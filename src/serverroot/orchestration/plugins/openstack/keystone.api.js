@@ -588,6 +588,42 @@ function sendV3CurlGetReq (dataObj, callback)
     });
 }
 
+function sendV3CurlDelReq (authObj, callback)
+{
+    var reqUrl      = authObj['reqUrl'];
+    var headers     = authObj['headers'];
+    var authIP      = authServerIP;
+    var authPort    = authServerPort;
+    var authProto   = null;
+    try {
+        authProto = config.identityManager.authProtocol;
+        if (null == authProto) {
+            authProto = global.PROTOCOL_HTTP;
+        }
+    } catch(e) {
+        authProto = global.PROTOCOL_HTTP;
+    }
+
+    var headersStr = "";
+    for (key in headers) {
+        headersStr += ' -H "' + key + ": " + headers[key] + '"';
+    }
+    headersStr += " ";
+    var cmd = 'curl -i -X DELETE ';
+    if (null != headers) {
+        cmd += headersStr;
+    }
+
+    cmd += authProto + '://' + authIP + ':' + authPort + reqUrl;
+    exec(cmd, function(err, stdout, stderr) {
+        if (null != err) {
+            callback(err, null);
+        } else {
+            callback(err, JSON.parse(stdout));
+        }
+    });
+}
+
 function formatV3AuthDataToV2AuthData (v3AuthData, authObj, callback)
 {
     var tokenObj = {};
@@ -822,6 +858,7 @@ function getUserAuthDataByConfigAuthObj (authObj, callback)
     } catch(e) {
         logutils.logger.error("userAuth.js not found");
         callback(error, null);
+        return;
     }
     if (null == authObj) {
         authObj = {};
@@ -919,11 +956,14 @@ function getUserRoleByAllTenants (username, password, tenantlist, callback)
             var dataLen = data.length;
             var tokenObjs = {};
             for (var i = 0; i < dataLen; i++) {
-                var project = data[i]['tokenObj']['token']['tenant']['name'];
-                tokenObjs[project] = data[i]['tokenObj'];
-                if (null == data[i]) {
+                var project =
+                    commonUtils.getValueByJsonPath(data[i],
+                                                   'tokenObj;token;tenant;name',
+                                                   null);
+                if (null == project) {
                     continue;
                 }
+                tokenObjs[project] = data[i]['tokenObj'];
                 userRoles =
                     getUserRoleByAuthResponse(data[i]['roles']);
                 var userRolesCnt = userRoles.length;
@@ -1080,10 +1120,24 @@ function getProjectDetails (projects, userObj, callback)
             var tokenObjs = {};
             var tokenCnt = tokenList.length;
             for (var i = 0; i < tokenCnt; i++) {
-                var project = tokenList[i]['tenant']['name'];
+                var project =
+                    commonUtils.getValueByJsonPath(tokenList[i], 'tenant;name',
+                                                   null);
+                if (null == project) {
+                    continue;
+                }
                 tokenObjs[project] = {};
                 tokenObjs[project]['token'] = tokenList[i];
-                tokenObjs[project]['token']['id'] =
+                var tokenID =
+                    commonUtils.getValueByJsonPath(tokenObjs[project],
+                                                   'token;id', null);
+                if (null == tokenID) {
+                    logutils.logger.error('We did not get valid token id for ' +
+                                          'project: ' + project);
+                    delete tokenObjs[project];
+                    continue;
+                }
+                tokenObjs[project]['token']['id'] = removeSpecialChars(tokenID);
                     removeSpecialChars(tokenObjs[project]['token']['id'] );
             }
             callback(err, data, tokenObjs);
@@ -1103,7 +1157,13 @@ function getUserRoleByProjectList (projects, userObj, callback)
         var projCnt = projs.length;
         for (var i = 0; i < projCnt; i++) {
             try {
-                var projName = projs[i]['token']['project']['name'];
+                var projName =
+                    commonUtils.getValueByJsonPath(projs[i],
+                                                   'token;project;name',
+                                                   null);
+                if (null == projName) {
+                    continue;
+                }
                 resTokenObjs[projName] = projs[i];
                 if (null != tokenObjs[projName]) {
                     resTokenObjs[projName]['token']['id'] =
@@ -1121,7 +1181,10 @@ function getUserRoleByProjectList (projects, userObj, callback)
         }
         var resCnt = projs.length;
         for (var i = 0; i < resCnt; i++) {
-            var userRole = getUserRoleByAuthResponse(projs[i]['token']['roles']);
+            var roles =
+                commonUtils.getValueByJsonPath(projs[i],
+                                               'token;roles', null);
+            var userRole = getUserRoleByAuthResponse(roles);
             if (global.STR_ROLE_ADMIN == userRole) {
                 callback(userRole, resTokenObjs);
                 return;
@@ -1603,13 +1666,20 @@ function getProjectList (req, appData, callback)
             async.map(tenantObjArr, getUserRoleByTenant, function(err, data) {
                 var dataLen = data.length;
                 for (var i = 0; i < dataLen; i++) {
-                    if (null == data[i]) {
+                    var project =
+                        commonUtils.getValueByJsonPath(data[i],
+                                                       'tokenObj;token;tenant;name',
+                                                       null);
+                    if (null == project) {
                         continue;
                     }
-                    var project =
-                        data[i]['tokenObj']['token']['tenant']['name'];
                     var projectUUID =
-                        data[i]['tokenObj']['token']['tenant']['id'];
+                        commonUtils.getValueByJsonPath(data[i],
+                                                       'tokenObj;token;tenant;id',
+                                                       null);
+                    if (null == projectUUID) {
+                        continue;
+                    }
                     req.session.tokenObjs[project] = data[i]['tokenObj'];
                     var userRoles = getUserRoleByAuthResponse(data[i]['roles']);
                     var rolesCnt = data[i]['roles'].length;
@@ -1913,6 +1983,78 @@ function getCookieObjs (req, appData, callback)
     });
 }
 
+function authDelV2Req (authObj, callback)
+{
+    var token = authObj['token'];
+    var authParams = require('../../../../../config/userAuth');
+    var tokDelURL = '/v2.0/tokens/' + token;
+    var headers = {};
+    headers['X-Auth-Token'] = authParams.admin_token;
+    authAPIServer.api.delete(tokDelURL, function(err, data) {
+        callback(err, data);
+    }, headers);
+}
+
+var delKeystoneTokenCBs = {
+    'v2.0': deleteV2KeystoneToken,
+    'v3': deleteV3KeystoneToken,
+};
+
+function deleteV3KeystoneToken (authObj, callback)
+{
+    var headers = {};
+    var reqUrl = '/v3/auth/tokens/';
+    if (null != authObj['headers']) {
+        headers = authObj['headers'];
+    }
+    headers['X-Subject-Token'] = authObj['token'];
+    try {
+        var authParams = require('../../../../../config/userAuth');
+        headers['X-Auth-Token'] = authParams.admin_token;
+    } catch(e) {
+    }
+
+    authAPIServer.api.delete(reqUrl, function(err) {
+        callback(err);
+    }, headers);
+}
+
+function deleteV2KeystoneToken (authObj, callback)
+{
+    authDelV2Req(authObj, callback);
+}
+
+function deleteKeystoneToken (data, callback)
+{
+    var req = data['req'];
+    var authApiVer = req.session.authApiVersion;
+    var delKeystoneTokenCB = delKeystoneTokenCBs[authApiVer];
+    var token = data['token'];
+    delKeystoneTokenCB(data, function(err, delData) {
+        callback(err, delData);
+    });
+}
+
+function deleteAllTokens (req, callback)
+{
+    try {
+        var authParams = require('../../../../../config/userAuth');
+    } catch(e) {
+        logutils.logger.error("userAuth.js not found");
+        callback(null, null);
+        return;
+    }
+    var adminToken = authParams.admin_token;
+    var tokenList = [];
+    for (key in req.session.tokenObjs) {
+        tokenList.push({'req': req,
+                       'token': req.session.tokenObjs[key]['token']['id']});
+    }
+    async.map(tokenList, deleteKeystoneToken, function(err, data) {
+        callback(err, data);
+    });
+}
+
 function getSessionExpiryTime (req, appData, callback)
 {
     var cfgSessTimeout =
@@ -1954,4 +2096,4 @@ exports.getUserRoleByAuthResponse = getUserRoleByAuthResponse;
 exports.getCookieObjs = getCookieObjs;
 exports.getSessionExpiryTime = getSessionExpiryTime;
 exports.getUserAuthDataByConfigAuthObj = getUserAuthDataByConfigAuthObj;
-
+exports.deleteAllTokens = deleteAllTokens;

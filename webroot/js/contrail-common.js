@@ -29,12 +29,17 @@ function Contrail() {
         return templates[key];
 
     };
+
     this.checkIfExist = function(value) {
         var exist = true;
         if(value == null ||  typeof value  == "undefined") {
             exist = false;
         }
         return exist;
+    };
+
+    this.checkIfKnockoutBindingExist = function (id) {
+        return this.checkIfExist(ko.dataFor(document.getElementById(id)))
     };
 
     this.handleIfNull = function(value, defaultValue) {
@@ -112,7 +117,7 @@ function Contrail() {
         return errorMsg;
     };
     this.ajaxHandler = function (config, initHandler, successHandler, failureHandler) {
-        var contentType = null, dataType = null,
+        var contentType = null, dataType = config['dataType'],
             methodType = config['type'], cacheEnabled = config['cache'],
             reqTimeOut = config['timeout'], dataUrl = config['url'],
             postData = config['data'], ajaxConfig = {};
@@ -131,8 +136,7 @@ function Contrail() {
                     postData = "{}";
                 }
                 contentType = "application/json; charset=utf-8";
-                dataType = "json";
-                ajaxConfig.dataType = dataType;
+                ajaxConfig.dataType = (dataType == null)? "json" : dataType;
                 ajaxConfig.contentType = contentType;
             }
         } else {
@@ -163,11 +167,11 @@ function Contrail() {
     };
 
     this.truncateText = function(text, size){
-    	if(text.length <= size){
+    	var textLength = text.length;
+        if(textLength <= size){
     		return text;
-    	}
-    	else{
-    		return text.substr(0,(size-3)) + '...';
+    	} else{
+    		return text.substr(0, (size - 6)) + '...' + text.substr((textLength - 3), textLength);
     	}
     };
 
@@ -315,6 +319,22 @@ function Contrail() {
 		});
 		return outputParents;
 	};
+
+    /*
+     * .heightSVG(className)
+     * Get the current computed height for the first element in the set of matched SVG elements.
+     */
+    $.fn.heightSVG = function(){
+        return ($(this).get(0)) ? $(this).get(0).getBBox().height : null;
+    };
+
+    /*
+     * .widthSVG(className)
+     * Get the current computed width for the first element in the set of matched SVG elements.
+     */
+    $.fn.widthSVG = function(){
+        return ($(this).get(0)) ? $(this).get(0).getBBox().width : null;
+    };
 
     /*
      * .redraw()

@@ -4,53 +4,79 @@
 
 define([
     'underscore',
-    'backbone'
-], function (_, Backbone) {
-    var DetailsView = Backbone.View.extend({
+    'contrail-view'
+], function (_, ContrailView) {
+    var DetailsView = ContrailView.extend({
         render: function () {
-            var loadingSpinnerTemplate = contrail.getTemplate4Id(cowc.TMPL_LOADING_SPINNER),
-                viewConfig = this.attributes.viewConfig,
+            var self = this,
+                viewConfig = self.attributes.viewConfig,
                 data = viewConfig['data'],
                 ajaxConfig = viewConfig['ajaxConfig'],
-                templateConfig = viewConfig['templateConfig'],
                 dataParser = viewConfig['dataParser'],
-                app = viewConfig['app'],
-                detailsTemplate = cowu.generateDetailTemplate(templateConfig, app),
-                self = this, modelMap = this.modelMap;
+                modelMap = this.modelMap;
 
             if(contrail.checkIfExist(data)) {
-                self.$el.html(detailsTemplate(data));
-                initActionClickEvents(self.$el, templateConfig.actions, data);
+                self.renderDetailView({data: data, requestState: cowc.DATA_REQUEST_STATE_SUCCESS_NOT_EMPTY});
             } else {
-                self.$el.append(loadingSpinnerTemplate);
+                self.renderDetailView({data: [], requestState: cowc.DATA_REQUEST_STATE_FETCHING});
 
                 if (modelMap != null && modelMap[viewConfig['modelKey']] != null) {
                     var contrailViewModel = modelMap[viewConfig['modelKey']],
-                        attributes;
+                        attributes, requestState;
 
                     if (!contrailViewModel.isRequestInProgress()) {
+                        requestState = cowu.getRequestState4Model(contrailViewModel);
                         attributes = contrailViewModel.attributes;
-                        self.$el.html(detailsTemplate(attributes));
-                        initActionClickEvents(self.$el, templateConfig.actions, attributes);
+                        self.renderDetailView({data: attributes, requestState: requestState});
+
                     } else {
                         contrailViewModel.onAllRequestsComplete.subscribe(function () {
+                            requestState = cowu.getRequestState4Model(contrailViewModel);
                             attributes = contrailViewModel.attributes;
-                            self.$el.html(detailsTemplate(attributes));
-                            initActionClickEvents(self.$el, templateConfig.actions, attributes);
+                            self.renderDetailView({data: attributes, requestState: requestState});
                         });
                     }
                 } else {
                     contrail.ajaxHandler(ajaxConfig, null, function (response) {
-                        var parsedData = dataParser(response);
-                        self.$el.html(detailsTemplate(parsedData));
-                        initActionClickEvents(self.$el, templateConfig.actions, parsedData);
+                        var parsedData = dataParser(response),
+                            requestState = cowc.DATA_REQUEST_STATE_SUCCESS_NOT_EMPTY;
+
+                        if ($.isEmptyObject(parsedData)) {
+                            requestState = cowc.DATA_REQUEST_STATE_SUCCESS_EMPTY;
+                        }
+
+                        self.renderDetailView({data: parsedData, requestState: requestState});
+                    }, function (error) {
+                        self.renderDetailView({data: [], requestState: cowc.DATA_REQUEST_STATE_ERROR});
                     });
                 }
+            }
+        },
+
+        renderDetailView: function(detailDataObj) {
+            var self = this,
+                viewConfig = self.attributes.viewConfig,
+                app = viewConfig['app'],
+                templateConfig = viewConfig['templateConfig'],
+                detailsTemplate = cowu.generateDetailTemplate(templateConfig, app);
+
+            self.$el.html(detailsTemplate(detailDataObj));
+
+            if (detailDataObj.requestState !== cowc.DATA_REQUEST_STATE_ERROR) {
+                initClickEvents(self.$el, templateConfig, detailDataObj.data);
             }
         }
     });
 
-    var initActionClickEvents = function(detailEl, actions, data) {
+    function initClickEvents(detailEl, templateConfig, data) {
+        initActionClickEvents(detailEl, templateConfig, data);
+        initWidgetViewEvents(detailEl);
+        initDetailDataClickEvents(detailEl, templateConfig, data);
+
+    };
+
+    function initActionClickEvents(detailEl, templateConfig, data) {
+        var actions = templateConfig.actions
         if (_.isArray(actions)) {
             $.each(actions, function(actionKey, actionValue) {
                 if(actionValue.type == 'dropdown') {
@@ -66,6 +92,56 @@ define([
             })
         }
     };
+
+    function initWidgetViewEvents(detailEl) {
+        $(detailEl).find('[data-action="list-view"]')
+            .off('click')
+            .on('click', function (event) {
+                $(this).parents('.widget-box').find('.list-view').show();
+                $(this).parents('.widget-box').find('.advanced-view').hide();
+                $(this).parents('.widget-box').find('.contrail-status-view').hide();
+            });
+
+        $(detailEl).find('[data-action="advanced-view"]')
+            .off('click')
+            .on('click', function (event) {
+                $(this).parents('.widget-box').find('.advanced-view').show();
+                $(this).parents('.widget-box').find('.list-view').hide();
+                $(this).parents('.widget-box').find('.contrail-status-view').hide();
+            })
+    };
+
+    function initDetailDataClickEvents (detailEl, templateConfig, data) {
+        if (templateConfig.templateGenerator === 'ColumnSectionTemplateGenerator') {
+            $.each(templateConfig.templateGeneratorConfig.columns, function (columnKey, columnValue) {
+                $.each(columnValue.rows, function (rowKey, rowValue) {
+                    initDetailDataClickEvents(detailEl, rowValue, data)
+                });
+            });
+        }
+
+        if (templateConfig.templateGenerator === 'BlockListTemplateGenerator') {
+            $.each(templateConfig.templateGeneratorConfig, function (configKey, configValue) {
+                initDetailDataClickEvents(detailEl, configValue, data)
+            });
+        }
+
+        if (templateConfig.templateGenerator === 'TextGenerator') {
+            if (contrail.checkIfExist(templateConfig.events)) {
+                $.each(templateConfig.events, function (eventKey, eventValue) {
+                    $(detailEl).find('.' + templateConfig.key + '-value')
+                        .off(eventKey)
+                        .on(eventKey, function (event) {
+                            eventValue(event, data);
+                        });
+                });
+            }
+        }
+
+        if (templateConfig.templateGenerator === 'LinkGenerator') {
+            //TODO
+        }
+    }
 
     return DetailsView;
 });

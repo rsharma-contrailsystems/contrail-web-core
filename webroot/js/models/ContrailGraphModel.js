@@ -5,12 +5,12 @@
 define([
     'underscore',
     'contrail-remote-data-handler',
-    'js/models/GraphLayoutHandler'
+    'core-basedir/js/handlers/GraphLayoutHandler'
 ], function (_, ContrailRemoteDataHandler, GraphLayoutHandler) {
     var ContrailGraphModel = joint.dia.Graph.extend({
+        empty: false,
         error: false,
         errorList: [],
-        rankDir: "LR",
         initialize: function (graphModelConfig) {
             var defaultCacheConfig = {
                 cacheConfig: {
@@ -195,6 +195,7 @@ define([
 
     function setData2Model(contrailGraphModel, response, rankDir) {
         contrailGraphModel.elementMap = {node: {}, link: {}};
+        contrailGraphModel.nodeSearchDropdownData = null;
         contrailGraphModel.beforeDataUpdate.notify();
 
         if (contrailGraphModel.forceFit && rankDir != null) {
@@ -214,6 +215,7 @@ define([
     function setCachedElementsInModel(contrailGraphModel, cachedGraphModel) {
         var cachedCells = cachedGraphModel.getElements();
         contrailGraphModel.elementMap = cachedGraphModel.elementMap;
+        contrailGraphModel.nodeSearchDropdownData = cachedGraphModel.nodeSearchDropdownData;
         contrailGraphModel.beforeDataUpdate.notify();
 
         if (contrailGraphModel.forceFit) {
@@ -230,6 +232,8 @@ define([
         contrailGraphModel.rawData = cachedGraphModel.rawData;
         contrailGraphModel.directedGraphSize = cachedGraphModel.directedGraphSize;
         contrailGraphModel.loadedFromCache = true;
+
+        contrailGraphModel.empty = cachedGraphModel.empty;
     };
 
     function layoutGraph (contrailGraphModel) {

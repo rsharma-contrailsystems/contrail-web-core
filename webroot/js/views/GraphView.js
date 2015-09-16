@@ -4,15 +4,14 @@
 
 define([
     'contrail-graph-model',
-    'js/views/ControlPanelView'
+    'core-basedir/js/views/ControlPanelView'
 ], function (ContrailGraphModel, ControlPanelView) {
     var GraphView = joint.dia.Paper.extend({
         constructor: function (viewConfig) {
-            var graphConfig = viewConfig.graphModelConfig,
+            var self = this,
+                graphConfig = viewConfig.graphModelConfig,
                 tooltipConfig, clickEventsConfig, controlPanelConfig,
-                graphControlPanelId = "#graph-control-panel",
-                graphLoadingId = '#graph-loading',
-                self = this;
+                graphControlPanelId = '#'+ ctwl.GRAPH_CONTROL_PANEL_ID;
 
             self.model = new ContrailGraphModel(graphConfig);
             self.viewConfig = viewConfig;
@@ -28,32 +27,32 @@ define([
             });
 
             self.model.onAllRequestsComplete.subscribe(function() {
-                var directedGraphSize = self.model.directedGraphSize,
-                    graphSelectorElement = self.el,
-                    jointObject = {
-                        graph: self.model,
-                        paper: self
-                    };
+                if (self.model.error === true && contrail.checkIfFunction(viewConfig.failureCallback)) {
+                    viewConfig.failureCallback(self.model);
+                } else if (self.model.empty === true && contrail.checkIfFunction(viewConfig.emptyCallback)) {
+                    viewConfig.emptyCallback(self.model)
+                } else {
+                    var graphSelectorElement = self.el;
 
-                if(controlPanelConfig) {
-                    var viewAttributes = {
-                            viewConfig: getControlPanelConfig(graphSelectorElement, jointObject, graphConfig, controlPanelConfig)
-                        },
-                        controlPanelView = new ControlPanelView({
-                            el: graphControlPanelId,
-                            attributes: viewAttributes
-                        });
+                    if (controlPanelConfig) {
+                        var viewAttributes = {
+                                viewConfig: getControlPanelConfig(graphSelectorElement, self, graphConfig, controlPanelConfig)
+                            },
+                            controlPanelView = new ControlPanelView({
+                                el: graphControlPanelId,
+                                attributes: viewAttributes
+                            });
 
-                    controlPanelView.render();
+                        controlPanelView.render();
+                    }
+
+                    initClickEvents(graphSelectorElement, clickEventsConfig, self);
+                    initMouseEvents(graphSelectorElement, tooltipConfig, self);
+
+                    if (contrail.checkIfFunction(viewConfig.successCallback)) {
+                        viewConfig.successCallback(self);
+                    }
                 }
-
-                if(contrail.checkIfFunction(viewConfig.successCallback)) {
-                    $(graphLoadingId).remove();
-                    viewConfig.successCallback(jointObject, directedGraphSize);
-                }
-
-                initClickEvents(graphSelectorElement, clickEventsConfig, jointObject);
-                initMouseEvents(graphSelectorElement, tooltipConfig, jointObject);
             });
 
             return self;
@@ -68,38 +67,32 @@ define([
         }
     });
 
-    var initZoomEvents = function(graphSelectorElement, jointObject, controlPanelSelector, graphConfig, controlPanelConfig) {
+    var initZoomEvents = function(graphSelectorElement, graphView, controlPanelSelector, graphConfig, controlPanelConfig) {
         var graphControlPanelElement = $(controlPanelSelector),
-            panzommTargetId = controlPanelConfig.default.zoom.selectorId,
+            panzoomTargetId = controlPanelConfig.default.zoom.selectorId,
             panZoomDefaultConfig = {
                 increment: 0.2,
                 minScale: 0.2,
                 maxScale: 2,
                 duration: 200,
-                easing: "ease-out"
+                easing: "ease-out",
+                contain: 'invert'
             },
             panzoomConfig = $.extend(true, panZoomDefaultConfig, controlPanelConfig.default.zoom.config);
 
-        var screenWidth = $(graphSelectorElement).parents('.col1').width(),
-            screenHeight = $(graphSelectorElement).parents('.col1').height(),
-            screenOffsetTop = $(panzommTargetId).parent().offset().top,
-            screenOffsetLeft = $(panzommTargetId).parent().offset().left,
-            focal = {
-                clientX: screenOffsetLeft + screenWidth / 2,
-                clientY: screenOffsetTop + screenHeight / 2
-            },
+        var focal = getZoomFocal(graphSelectorElement, panzoomTargetId),
             allowZoom = true;
 
-        $(panzommTargetId).panzoom("reset");
-        $(panzommTargetId).panzoom("resetPan");
-        $(panzommTargetId).panzoom("destroy");
-        $(panzommTargetId).panzoom(panzoomConfig);
+        $(panzoomTargetId).panzoom("reset");
+        $(panzoomTargetId).panzoom("resetPan");
+        $(panzoomTargetId).panzoom("destroy");
+        $(panzoomTargetId).panzoom(panzoomConfig);
 
         var performZoom = function(zoomOut) {
             //Handle clicks and queue extra clicks if performed with the duration for smooth animation
             if (allowZoom == true) {
                 allowZoom = false;
-                $(panzommTargetId).panzoom("zoom", zoomOut, { focal: focal});
+                $(panzoomTargetId).panzoom("zoom", zoomOut, { focal: focal});
                 setTimeout(function(){
                     allowZoom = true;
                 }, panZoomDefaultConfig.duration);
@@ -120,7 +113,7 @@ define([
             .on('click', function(e) {
                 if (!$(this).hasClass('disabled')) {
                     e.preventDefault();
-                    $(panzommTargetId).panzoom("reset");
+                    $(panzoomTargetId).panzoom("reset");
                 }
             });
 
@@ -133,26 +126,33 @@ define([
                 }
             });
 
-        $(panzommTargetId).on('panzoompan', function(e, panzoom, x, y) {
-            $(panzommTargetId).panzoom('resetDimensions');
+        $(panzoomTargetId).on('panzoompan', function(e, panzoom, x, y) {
+            $(panzoomTargetId).panzoom('resetDimensions');
+            focal = getZoomFocal(graphSelectorElement, panzoomTargetId);
+        });
+    };
 
-            screenWidth = $(graphSelectorElement).parents('.col1').width(),
+    function getZoomFocal(graphSelectorElement, panzoomTargetId) {
+        if($(panzoomTargetId).length > 0) {
+            var screenWidth = $(graphSelectorElement).parents('.col1').width(),
                 screenHeight = $(graphSelectorElement).parents('.col1').height(),
-                screenOffsetTop = $(panzommTargetId).parent().offset().top,
-                screenOffsetLeft = $(panzommTargetId).parent().offset().left,
+                screenOffsetTop = $(panzoomTargetId).parent().offset().top,
+                screenOffsetLeft = $(panzoomTargetId).parent().offset().left,
                 focal = {
                     clientX: screenOffsetLeft + screenWidth / 2,
                     clientY: screenOffsetTop + screenHeight / 2
                 };
-        });
-    };
 
-    var getControlPanelConfig = function(graphSelectorElement, jointObject, graphConfig, controlPanelConfig) {
+            return focal;
+        }
+    }
+
+    var getControlPanelConfig = function(graphSelectorElement, graphView, graphConfig, controlPanelConfig) {
         var customConfig = $.extend(true, {}, controlPanelConfig.custom);
 
         $.each(customConfig, function(configKey, configValue) {
             if (contrail.checkIfFunction(configValue.iconClass)) {
-                configValue.iconClass = configValue.iconClass(jointObject);
+                configValue.iconClass = configValue.iconClass(graphView);
             }
         });
 
@@ -161,7 +161,7 @@ define([
                 zoom: {
                     enabled: true,
                     events: function(controlPanelSelector) {
-                        initZoomEvents(graphSelectorElement, jointObject, controlPanelSelector, graphConfig, controlPanelConfig);
+                        initZoomEvents(graphSelectorElement, graphView, controlPanelSelector, graphConfig, controlPanelConfig);
                     }
                 }
             },
@@ -169,7 +169,7 @@ define([
         }
     };
 
-    var initMouseEvents = function(graphSelectorElement, tooltipConfig, jointObject) {
+    var initMouseEvents = function(graphSelectorElement, tooltipConfig, graphView) {
         var timer = null;
         $('.popover').remove();
         $.each(tooltipConfig, function (keyConfig, valueConfig) {
@@ -204,10 +204,10 @@ define([
                     }
                 },
                 title: function () {
-                    return valueConfig.title($(this), jointObject);
+                    return valueConfig.title($(this), graphView);
                 },
                 content: function () {
-                    return valueConfig.content($(this), jointObject);
+                    return valueConfig.content($(this), graphView);
                 },
                 container: $('body')
             })
@@ -225,7 +225,7 @@ define([
                             .off('click')
                             .on('click', function() {
                                 var actionKey = $(this).data('action'),
-                                    actionsCallback = valueConfig.actionsCallback($(_this), jointObject);
+                                    actionsCallback = valueConfig.actionsCallback($(_this), graphView);
 
                                 actionsCallback[actionKey].callback();
                                 $(_this).popover('hide');
@@ -251,47 +251,47 @@ define([
         $(graphSelectorElement).find("text").on('mousedown touchstart', function (e) {
             e.stopImmediatePropagation();
             if($(this).closest('.no-drag-element').length == 0) {
-                jointObject.paper.pointerdown(e);
+                graphView.pointerdown(e);
             }
         });
 
         $(graphSelectorElement).find("image").on('mousedown touchstart', function (e) {
             e.stopImmediatePropagation();
             if($(this).closest('.no-drag-element').length == 0) {
-                jointObject.paper.pointerdown(e);
+                graphView.pointerdown(e);
             }
         });
 
         $(graphSelectorElement).find("polygon").on('mousedown touchstart', function (e) {
             e.stopImmediatePropagation();
             if($(this).closest('.no-drag-element').length == 0) {
-                jointObject.paper.pointerdown(e);
+                graphView.pointerdown(e);
             }
         });
 
         $(graphSelectorElement).find("path").on('mousedown touchstart', function (e) {
             e.stopImmediatePropagation();
             if($(this).closest('.no-drag-element').length == 0) {
-                jointObject.paper.pointerdown(e);
+                graphView.pointerdown(e);
             }
         });
 
         $(graphSelectorElement).find("rect").on('mousedown touchstart', function (e) {
             e.stopImmediatePropagation();
             if($(this).closest('.no-drag-element').length == 0) {
-                jointObject.paper.pointerdown(e);
+                graphView.pointerdown(e);
             }
         });
 
         $(graphSelectorElement).find(".font-element").on('mousedown touchstart', function (e) {
             e.stopImmediatePropagation();
             if($(this).closest('.no-drag-element').length == 0) {
-                jointObject.paper.pointerdown(e);
+                graphView.pointerdown(e);
             }
         });
     };
 
-    function initClickEvents(graphSelectorElement, eventConfig, jointObject) {
+    function initClickEvents(graphSelectorElement, eventConfig, graphView) {
         var timer = null,
             topContainerElement = $('#' + ctwl.TOP_CONTENT_CONTAINER);
 
@@ -304,24 +304,27 @@ define([
         };
 
         if(contrail.checkIfFunction(eventConfig['cell:pointerclick'])) {
-            jointObject.paper.on('cell:pointerclick', function(cellView, evt, x, y) {
+            graphView
+                .off('cell:pointerclick')
+                .on('cell:pointerclick', function(cellView, evt, x, y) {
+                    if (timer) {
+                        clearTimeout(timer);
+                    }
 
-                if (timer) {
-                    clearTimeout(timer);
-                }
-
-                timer = setTimeout(function() {
-                    eventConfig['cell:pointerclick'](cellView, evt, x, y);
-                    clearTimeout(timer);
-                }, 500);
-            });
+                    timer = setTimeout(function() {
+                        eventConfig['cell:pointerclick'](cellView, evt, x, y);
+                        clearTimeout(timer);
+                    }, 500);
+                });
         }
 
         if(contrail.checkIfFunction(eventConfig['cell:pointerdblclick'])) {
-            jointObject.paper.on('cell:pointerdblclick', function(cellView, evt, x, y) {
-                clearTimeout(timer);
-                eventConfig['cell:pointerdblclick'](cellView, evt, x, y);
-            });
+            graphView
+                .off('cell:pointerdblclick')
+                .on('cell:pointerdblclick', function(cellView, evt, x, y) {
+                    clearTimeout(timer);
+                    eventConfig['cell:pointerdblclick'](cellView, evt, x, y);
+                });
         }
 
         $(document)
